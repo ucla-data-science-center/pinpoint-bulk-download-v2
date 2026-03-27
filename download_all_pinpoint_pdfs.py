@@ -50,11 +50,10 @@ def write_missing_report(state: dict):
     lines.append("Pinpoint missing files report")
     lines.append(f"Collection: {state.get('collection_url', '')}")
     lines.append(
-        "Totals: attempted={attempted}, downloaded_new={downloaded_new}, already_existing={already_existing}, "
+        "Totals: attempted={attempted}, downloaded={downloaded_new}, "
         "downloaded_or_existing={downloaded_or_existing}, failed={failed}".format(
             attempted=run_counters.get("attempted", 0),
             downloaded_new=run_counters.get("downloaded_new", 0),
-            already_existing=run_counters.get("already_existing", 0),
             downloaded_or_existing=run_counters.get("downloaded_or_existing", 0),
             failed=run_counters.get("failed", 0),
         )
@@ -97,9 +96,12 @@ def next_available_path(base_path: Path) -> Path:
     if not base_path.exists():
         return base_path
     stem, suffix = base_path.stem, base_path.suffix
+    first_retry = base_path.with_name(f"{stem}_downloaded{suffix}")
+    if not first_retry.exists():
+        return first_retry
     idx = 2
     while True:
-        candidate = base_path.with_name(f"{stem} ({idx}){suffix}")
+        candidate = base_path.with_name(f"{stem}_downloaded_{idx}{suffix}")
         if not candidate.exists():
             return candidate
         idx += 1
@@ -180,7 +182,6 @@ def main():
         docs_attempted = 0
         docs_downloaded = 0
         docs_failed = 0
-        docs_existing = 0
         docs_counted_as_downloaded = 0
         download_state = {
             "collection_url": COLLECTION_URL,
@@ -191,7 +192,6 @@ def main():
             "run_counters": {
                 "attempted": 0,
                 "downloaded_new": 0,
-                "already_existing": 0,
                 "downloaded_or_existing": 0,
                 "failed": 0,
             },
@@ -223,7 +223,6 @@ def main():
                 page_titles = []
                 page_not_downloaded = []
                 page_downloaded = 0
-                page_existing = 0
                 page_failed = 0
                 if total != expected:
                     warn = (
@@ -263,17 +262,6 @@ def main():
                         raw_ui_title = f"results_page_{results_page}_doc_{i}.pdf"
                         ui_title = f"results_page_{results_page}_doc_{i}.pdf"
                     page_titles.append(raw_ui_title)
-
-                    # Skip files that have already been downloaded, handles duplicates here
-                    if (OUT_DIR / ui_title).exists():
-                        print(f"Skip (exists): {ui_title}")
-                        docs_existing += 1
-                        docs_counted_as_downloaded += 1
-                        page_existing += 1
-                        page_downloaded += 1
-                        download_state["run_counters"]["already_existing"] = docs_existing
-                        download_state["run_counters"]["downloaded_or_existing"] = docs_counted_as_downloaded
-                        continue
 
                     print(f"[{results_page}:{i+1}/{total}] {ui_title}")
 
@@ -344,8 +332,7 @@ def main():
                     "expected_docs": expected,
                     "visible_docs": total,
                     "attempted_docs": total,
-                    "downloaded_new": max(0, page_downloaded - page_existing),
-                    "already_existing": page_existing,
+                    "downloaded_new": page_downloaded,
                     "downloaded_or_existing": page_downloaded,
                     "failed_docs": page_failed,
                     "not_downloaded_files": page_not_downloaded,
@@ -370,9 +357,8 @@ def main():
         print("\nRun summary:")
         print(f"- Pages completed: {pages_completed}")
         print(f"- Docs iterated: {docs_attempted}")
-        print(f"- Newly downloaded: {docs_downloaded}")
-        print(f"- Skipped (already existed): {docs_existing}")
-        print(f"- Downloaded or already existing: {docs_counted_as_downloaded}")
+        print(f"- Downloaded: {docs_downloaded}")
+        print(f"- Downloaded or existing metric: {docs_counted_as_downloaded}")
         print(f"- Failed downloads: {docs_failed}")
         print(f"- PDFs currently in output folder: {existing_pdfs}")
         if existing_pdfs < EXPECTED_TOTAL_DOCS:
@@ -389,7 +375,6 @@ def main():
         download_state["run_counters"] = {
             "attempted": docs_attempted,
             "downloaded_new": docs_downloaded,
-            "already_existing": docs_existing,
             "downloaded_or_existing": docs_counted_as_downloaded,
             "failed": docs_failed,
         }
